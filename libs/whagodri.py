@@ -106,7 +106,10 @@ class WaBackup:
                     exit()
 
                 print("Requesting access to Google by OAuth cookie...")
-                token = gpsoauth.perform_master_login_oauth(email=gmail, oauth_token=oauth_token, android_id=android_id)
+                # `oauth_token` captured from the browser is a web token. It must be
+                # exchanged for a master token first; direct master-login by oauth
+                # currently fails with `MissingDroidguard` on newer Google checks.
+                token = gpsoauth.exchange_token(email=gmail, token=oauth_token, android_id=android_id)
                 if "Token" not in token:
                     error(token)
                     quit()
@@ -135,7 +138,10 @@ class WaBackup:
             gmail,
             master_token,
             android_id,
-            "oauth2:https://www.googleapis.com/auth/drive.appdata",
+            # Request both appdata and readonly Drive scopes. Some accounts can
+            # list backups with appdata scope but fail when downloading media
+            # blobs (`alt=media`) unless readonly access is also granted.
+            "oauth2:https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.readonly",
             "com.whatsapp",
             "38a0f7d505fe18fec64fbf343ecaaaf310dbd799",
         )
