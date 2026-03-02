@@ -106,7 +106,10 @@ class WaBackup:
                     exit()
 
                 print("Requesting access to Google by OAuth cookie...")
-                token = gpsoauth.perform_master_login_oauth(email=gmail, oauth_token=oauth_token, android_id=android_id)
+                # `oauth_token` captured from the browser is a web token. It must be
+                # exchanged for a master token first; direct master-login by oauth
+                # currently fails with `MissingDroidguard` on newer Google checks.
+                token = gpsoauth.exchange_token(email=gmail, token=oauth_token, android_id=android_id)
                 if "Token" not in token:
                     error(token)
                     quit()
