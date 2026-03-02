@@ -40,14 +40,18 @@ class WaBackup:
     def __init__(self, gmail, password, android_id, celnumbr, oauth_token):
         master_token = None
         if oauth_token:
-            print("Exchanging web oauth_token to master token...")
-            token = gpsoauth.exchange_token(gmail, oauth_token, android_id)
-            if "Token" in token:
-                print("Granted.")
-                master_token = token['Token']
+            if oauth_token.startswith(("oauth2rt_", "aas_et/")):
+                print("Using stored master token...")
+                master_token = oauth_token
             else:
-                error(token)
-                quit()
+                print("Exchanging web oauth_token to master token...")
+                token = gpsoauth.exchange_token(gmail, oauth_token, android_id)
+                if "Token" in token:
+                    print("Granted.")
+                    master_token = token['Token']
+                else:
+                    error(token)
+                    quit()
         else:
             print("Requesting access to Google...")
             token = gpsoauth.perform_master_login(email=gmail, password=password, android_id=android_id)
