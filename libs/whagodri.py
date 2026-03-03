@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 import subprocess
+import re
 from configobj import ConfigObj
 from getpass import getpass
 from textwrap import dedent
@@ -40,14 +41,21 @@ class WaBackup:
     def __init__(self, gmail, password, android_id, celnumbr, oauth_token):
         master_token = None
         if oauth_token:
-            print("Exchanging web oauth_token to master token...")
-            token = gpsoauth.exchange_token(gmail, oauth_token, android_id)
-            if "Token" in token:
-                print("Granted.")
-                master_token = token['Token']
+            # settings.cfg stores the Google master token once obtained.
+            # If we already have a master token (typically starts with `aas_et/`),
+            # use it directly and avoid exchanging it again.
+            if oauth_token.startswith("aas_et/"):
+                print("Using stored master token from settings.cfg...")
+                master_token = oauth_token
             else:
-                error(token)
-                quit()
+                print("Exchanging web oauth_token to master token...")
+                token = gpsoauth.exchange_token(gmail, oauth_token, android_id)
+                if "Token" in token:
+                    print("Granted.")
+                    master_token = token['Token']
+                else:
+                    error(token)
+                    quit()
         else:
             print("Requesting access to Google...")
             token = gpsoauth.perform_master_login(email=gmail, password=password, android_id=android_id)
@@ -106,7 +114,10 @@ class WaBackup:
                     exit()
 
                 print("Requesting access to Google by OAuth cookie...")
-                token = gpsoauth.perform_master_login_oauth(email=gmail, oauth_token=oauth_token, android_id=android_id)
+                # `oauth_token` captured from the browser is a web token. It must be
+                # exchanged for a master token first; direct master-login by oauth
+                # currently fails with `MissingDroidguard` on newer Google checks.
+                token = gpsoauth.exchange_token(email=gmail, token=oauth_token, android_id=android_id)
                 if "Token" not in token:
                     error(token)
                     quit()
@@ -267,6 +278,14 @@ def human_size(size):
             break
         size = int(size / 1024)
     return "({} {})".format(size, s)
+
+
+def image_matches_date(file_path: str, date_filter: str) -> bool:
+    if not date_filter:
+        return True
+
+    file_name = os.path.basename(file_path)
+    return file_name.startswith("IMG-{}".format(date_filter))
 
 
 def backup_info(backup):
@@ -612,7 +631,11 @@ if __name__ == "__main__":
     parser.add_argument("-np", "--no_parallel", help="No parallel downloads", action="store_true")
     parser.add_argument("-tc", "--thread_count", help="Number of threads if parallel download", type=int, default=12)
     parser.add_argument("-dr", "--dry_run", help="Dry Run : No downloads", action="store_true")
+    parser.add_argument("--image_date", help="Filter image filename by date (YYYYMM or YYYYMMDD), examples: 202302 or 20230203", type=str)
     args = parser.parse_args()
+
+    if args.image_date and not re.fullmatch(r"(?:\d{6}|\d{8})", args.image_date):
+        quit("[e] --image_date format invalid. Use YYYYMM or YYYYMMDD, e.g. 202302 or 20230203")
 
     cfg_file = r'{}/cfg/settings.cfg'.format(whapa_path).replace("/", os.path.sep)
     if not os.path.isfile(cfg_file):
@@ -685,8 +708,8 @@ if __name__ == "__main__":
                     if (number_backup in phone) or (phone == ""):
                         filter_file: dict = {}
                         for file in wa_backup.backup_files(backup):
-                            i = os.path.splitext(file["name"])[1]
-                            if ("jpg" in i) or ("jpeg" in i) or ("png" in i):
+                            i = os.path.splitext(file["name"])[1].lower()
+                            if (("jpg" in i) or ("jpeg" in i) or ("png" in i)) and image_matches_date(file["name"], args.image_date):
                                 filter_file[file["name"]] = int(file["sizeBytes"])
 
                         if args.no_parallel:
