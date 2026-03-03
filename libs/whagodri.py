@@ -145,10 +145,7 @@ class WaBackup:
             gmail,
             master_token,
             android_id,
-            # Request both appdata and readonly Drive scopes. Some accounts can
-            # list backups with appdata scope but fail when downloading media
-            # blobs (`alt=media`) unless readonly access is also granted.
-            "oauth2:https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.readonly",
+            "oauth2:https://www.googleapis.com/auth/drive.appdata",
             "com.whatsapp",
             "38a0f7d505fe18fec64fbf343ecaaaf310dbd799",
         )
