@@ -40,14 +40,21 @@ class WaBackup:
     def __init__(self, gmail, password, android_id, celnumbr, oauth_token):
         master_token = None
         if oauth_token:
-            print("Exchanging web oauth_token to master token...")
-            token = gpsoauth.exchange_token(gmail, oauth_token, android_id)
-            if "Token" in token:
-                print("Granted.")
-                master_token = token['Token']
+            # settings.cfg stores the Google master token once obtained.
+            # If we already have a master token (typically starts with `aas_et/`),
+            # use it directly and avoid exchanging it again.
+            if oauth_token.startswith("aas_et/"):
+                print("Using stored master token from settings.cfg...")
+                master_token = oauth_token
             else:
-                error(token)
-                quit()
+                print("Exchanging web oauth_token to master token...")
+                token = gpsoauth.exchange_token(gmail, oauth_token, android_id)
+                if "Token" in token:
+                    print("Granted.")
+                    master_token = token['Token']
+                else:
+                    error(token)
+                    quit()
         else:
             print("Requesting access to Google...")
             token = gpsoauth.perform_master_login(email=gmail, password=password, android_id=android_id)
@@ -106,7 +113,10 @@ class WaBackup:
                     exit()
 
                 print("Requesting access to Google by OAuth cookie...")
-                token = gpsoauth.perform_master_login_oauth(email=gmail, oauth_token=oauth_token, android_id=android_id)
+                # `oauth_token` captured from the browser is a web token. It must be
+                # exchanged for a master token first; direct master-login by oauth
+                # currently fails with `MissingDroidguard` on newer Google checks.
+                token = gpsoauth.exchange_token(email=gmail, token=oauth_token, android_id=android_id)
                 if "Token" not in token:
                     error(token)
                     quit()
