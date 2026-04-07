@@ -10,6 +10,8 @@ import threading
 import time
 import subprocess
 import re
+import html
+from urllib.parse import parse_qs, urlparse
 from configobj import ConfigObj
 from getpass import getpass
 from textwrap import dedent
@@ -68,7 +70,7 @@ class WaBackup:
                     sys.stdout.flush()
                     time.sleep(1)
 
-                url = token.get("Url")
+                url = html.unescape(token.get("Url", ""))
                 options = Options()
                 options.add_argument("--window-size=720,720")
                 #os.environ['GH_TOKEN'] = ""
@@ -94,24 +96,50 @@ class WaBackup:
                         )
 
                 driver.get(url)
-                for remaining in range(30, -1, -1):
+                print("Login in browser window, waiting for oauth token...")
+                oauth_token = None
+                google_error_in_browser = False
+                for remaining in range(120, -1, -1):
                     sys.stdout.write("\r")
-                    sys.stdout.write("{:2d} seconds remaining to login to your Google Account".format(remaining))
+                    sys.stdout.write("{:3d} seconds remaining to login to your Google Account".format(remaining))
                     sys.stdout.flush()
-                    time.sleep(1)
 
-                sys.stdout.write("\nFinished!\n")
-                cookies = driver.get_cookies()
-                for cookie in cookies:
-                    if cookie.get("name") == 'oauth_token':
-                        oauth_token = cookie.get("value")
-                        print("A valid token has been obtained.")
+                    current_url = driver.current_url
+                    page_title = (driver.title or "").lower()
+                    if "error 400" in page_title or "400." in page_title or "invalid_request" in current_url:
+                        google_error_in_browser = True
                         break
 
-                driver.close()
+                    parsed = urlparse(current_url)
+                    query = parse_qs(parsed.query)
+                    fragment = parse_qs(parsed.fragment)
+
+                    oauth_token = query.get("oauth_token", [None])[0] or fragment.get("oauth_token", [None])[0]
+                    if not oauth_token:
+                        cookies = driver.get_cookies()
+                        for cookie in cookies:
+                            if cookie.get("name") == "oauth_token":
+                                oauth_token = cookie.get("value")
+                                break
+
+                    if oauth_token:
+                        print("\nA valid token has been obtained.")
+                        break
+
+                    time.sleep(1)
+
+                driver.quit()
                 if not oauth_token:
-                    print("No valid token has been obtained.")
-                    exit()
+                    if google_error_in_browser:
+                        print("\nGoogle returned Error 400 in automated browser session.")
+                        print("Open this URL in your normal browser, finish login, then copy oauth_token from redirected URL:")
+                        print(url)
+                        oauth_token = input("Paste oauth_token here (or press Enter to cancel): ").strip()
+
+                    if not oauth_token:
+                        print("\nNo valid token has been obtained.")
+                        print("Tip: complete Google login and wait until redirect URL contains oauth_token.")
+                        exit()
 
                 print("Requesting access to Google by OAuth cookie...")
                 # `oauth_token` captured from the browser is a web token. It must be
@@ -288,6 +316,16 @@ def image_matches_date(file_path: str, date_filter: str) -> bool:
     return file_name.startswith("IMG-{}".format(date_filter))
 
 
+def format_size_field(value):
+    if value in (None, "", "None"):
+        return "None"
+
+    try:
+        return "{} Bytes {}".format(value, human_size(int(value)))
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def backup_info(backup):
     try:
         metadata = json.loads(backup["metadata"])
@@ -296,12 +334,10 @@ def backup_info(backup):
         print("[-] Whatsapp version: {}".format(metadata.get("versionOfAppWhenBackup")))
         print("[-] Backup protected: {}".format(metadata.get("encryptedBackupEnabled")))
         print("[-] Backup upload   : {}".format(backup["updateTime"]))
-        print("[-] Backup size     : {} Bytes {}".format(backup["sizeBytes"], human_size(int(backup["sizeBytes"]))))
+        print("[-] Backup size     : {}".format(format_size_field(backup.get("sizeBytes"))))
         print("[+] Backup metadata")
         print("    [-] Backup Version           : {} ".format(metadata.get("backupVersion")))
-        print("    [-] Chat DB Size             : {} Bytes {}".format(metadata.get("chatdbSize"),
-                                                                      human_size(int(
-                                                                          metadata.get("chatdbSize")))))
+        print("    [-] Chat DB Size             : {}".format(format_size_field(metadata.get("chatdbSize"))))
         if metadata.get("encryptedBackupEnabled"):
             return
         print("    [-] Backup Frequency         : {} ".format(metadata.get("backupFrequency")))
@@ -311,15 +347,9 @@ def backup_info(backup):
         print("    [-] Num Of Photos            : {}".format(metadata.get("numOfPhotos")))
         print("    [-] Num Of Media Files       : {}".format(metadata.get("numOfMediaFiles")))
         print("    [-] Num Of Messages          : {}".format(metadata.get("numOfMessages")))
-        print("    [-] Video Size               : {} Bytes {}".format(metadata.get("videoSize"),
-                                                                      human_size(int(
-                                                                          metadata.get("videoSize")))))
-        print("    [-] Backup Size              : {} Bytes {}".format(metadata.get("backupSize"),
-                                                                      human_size(int(
-                                                                          metadata.get("backupSize")))))
-        print("    [-] Media Size               : {} Bytes {}".format(metadata.get("mediaSize"),
-                                                                      human_size(int(
-                                                                          metadata.get("mediaSize")))))
+        print("    [-] Video Size               : {}".format(format_size_field(metadata.get("videoSize"))))
+        print("    [-] Backup Size              : {}".format(format_size_field(metadata.get("backupSize"))))
+        print("    [-] Media Size               : {}".format(format_size_field(metadata.get("mediaSize"))))
 
     except Exception as e:
         print(e)
