@@ -10,6 +10,7 @@ import threading
 import time
 import subprocess
 import re
+from urllib.parse import parse_qs, urlparse
 from configobj import ConfigObj
 from getpass import getpass
 from textwrap import dedent
@@ -94,23 +95,36 @@ class WaBackup:
                         )
 
                 driver.get(url)
-                for remaining in range(30, -1, -1):
+                print("Login in browser window, waiting for oauth token...")
+                oauth_token = None
+                for remaining in range(120, -1, -1):
                     sys.stdout.write("\r")
-                    sys.stdout.write("{:2d} seconds remaining to login to your Google Account".format(remaining))
+                    sys.stdout.write("{:3d} seconds remaining to login to your Google Account".format(remaining))
                     sys.stdout.flush()
-                    time.sleep(1)
 
-                sys.stdout.write("\nFinished!\n")
-                cookies = driver.get_cookies()
-                for cookie in cookies:
-                    if cookie.get("name") == 'oauth_token':
-                        oauth_token = cookie.get("value")
-                        print("A valid token has been obtained.")
+                    current_url = driver.current_url
+                    parsed = urlparse(current_url)
+                    query = parse_qs(parsed.query)
+                    fragment = parse_qs(parsed.fragment)
+
+                    oauth_token = query.get("oauth_token", [None])[0] or fragment.get("oauth_token", [None])[0]
+                    if not oauth_token:
+                        cookies = driver.get_cookies()
+                        for cookie in cookies:
+                            if cookie.get("name") == "oauth_token":
+                                oauth_token = cookie.get("value")
+                                break
+
+                    if oauth_token:
+                        print("\nA valid token has been obtained.")
                         break
 
-                driver.close()
+                    time.sleep(1)
+
+                driver.quit()
                 if not oauth_token:
-                    print("No valid token has been obtained.")
+                    print("\nNo valid token has been obtained.")
+                    print("Tip: complete Google login and wait until redirect URL contains oauth_token.")
                     exit()
 
                 print("Requesting access to Google by OAuth cookie...")
