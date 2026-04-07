@@ -10,6 +10,7 @@ import threading
 import time
 import subprocess
 import re
+import html
 from urllib.parse import parse_qs, urlparse
 from configobj import ConfigObj
 from getpass import getpass
@@ -69,7 +70,7 @@ class WaBackup:
                     sys.stdout.flush()
                     time.sleep(1)
 
-                url = token.get("Url")
+                url = html.unescape(token.get("Url", ""))
                 options = Options()
                 options.add_argument("--window-size=720,720")
                 #os.environ['GH_TOKEN'] = ""
@@ -97,12 +98,18 @@ class WaBackup:
                 driver.get(url)
                 print("Login in browser window, waiting for oauth token...")
                 oauth_token = None
+                google_error_in_browser = False
                 for remaining in range(120, -1, -1):
                     sys.stdout.write("\r")
                     sys.stdout.write("{:3d} seconds remaining to login to your Google Account".format(remaining))
                     sys.stdout.flush()
 
                     current_url = driver.current_url
+                    page_title = (driver.title or "").lower()
+                    if "error 400" in page_title or "400." in page_title or "invalid_request" in current_url:
+                        google_error_in_browser = True
+                        break
+
                     parsed = urlparse(current_url)
                     query = parse_qs(parsed.query)
                     fragment = parse_qs(parsed.fragment)
@@ -123,9 +130,16 @@ class WaBackup:
 
                 driver.quit()
                 if not oauth_token:
-                    print("\nNo valid token has been obtained.")
-                    print("Tip: complete Google login and wait until redirect URL contains oauth_token.")
-                    exit()
+                    if google_error_in_browser:
+                        print("\nGoogle returned Error 400 in automated browser session.")
+                        print("Open this URL in your normal browser, finish login, then copy oauth_token from redirected URL:")
+                        print(url)
+                        oauth_token = input("Paste oauth_token here (or press Enter to cancel): ").strip()
+
+                    if not oauth_token:
+                        print("\nNo valid token has been obtained.")
+                        print("Tip: complete Google login and wait until redirect URL contains oauth_token.")
+                        exit()
 
                 print("Requesting access to Google by OAuth cookie...")
                 # `oauth_token` captured from the browser is a web token. It must be
